@@ -1,0 +1,12 @@
+// Root CA Certificate for MQTT Broker TLS/SSL
+// Copy this file to root_ca.h and replace with your actual CA certificate
+// DO NOT commit root_ca.h to version control!
+
+// To get the CA certificate from your MQTT broker, run:
+// openssl s_client -showcerts -connect localhost:8883 </dev/null 2>/dev/null | openssl x509 -outform PEM > ca.crt
+// Then copy the certificate content (including BEGIN/END lines) below
+
+const char* root_ca = \
+"-----BEGIN CERTIFICATE-----\n" \
+"YOUR_CA_CERTIFICATE_CONTENT_HERE\n" \
+"-----END CERTIFICATE-----\n";

@@ -1,0 +1,25 @@
+[Unit]
+Description=SProp Monitoring MQTT Listener Service
+After=network.target postgresql.service mosquitto.service
+Requires=postgresql.service mosquitto.service
+
+[Service]
+Type=simple
+User=mrchongyijian
+Group=mrchongyijian
+WorkingDirectory=/opt/sprop-backend
+Environment="PATH=/opt/sprop-backend/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/sprop-backend/venv/bin/python /opt/sprop-backend/mqtt_listener.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sprop-mqtt-listener
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
