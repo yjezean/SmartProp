@@ -1,6 +1,7 @@
 #include <ESP32Servo.h>
 #include <DHT.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <time.h>
 #include <ArduinoJson.h>
@@ -14,6 +15,7 @@ const int LED_RED = 19;               // Red LED for system fault
 
 // --- SENSOR PINS ---
 const int DHT_PIN = 21;               // DHT11 temperature/humidity sensor pin
+const int SOIL_MOISTURE_PIN = 33;     // Soil moisture sensor analog pin
 
 // --- ACTUATOR PINS ---
 const int LID_SERVO_PIN = 27;         // Servo pin for lid
@@ -26,10 +28,20 @@ const int WATER_VALVE_SERVO_PIN = 26; // Servo pin for water valve
 // --- WiFi & MQTT Configuration ---
 const char* WIFI_SSID = "YOUR WIFI SSID";             // Your WiFi SSID
 const char* WIFI_PASSWORD = "YOUR WIFI PASSWORD";       // Your WiFi password
-const char* MQTT_SERVER = "YOUR MQTT SERVER IP ADDRESS";     // Your VM instance public IP address
+const char* MQTT_SERVER = "YOUR MQTT SERVER IP ADDRESS";     // Your VM instance public IP address or hostname
 const char* MQTT_TOPIC = "sprop/sensor/data";     // MQTT topic for publishing sensor data
-const int MQTT_PORT = 1883;                  // Non-TLS communication port
+const int MQTT_PORT = 8883;                  // TLS/SSL encrypted communication port
+const char* MQTT_USERNAME = "YOUR MQTT USERNAME";  // MQTT broker username
+const char* MQTT_PASSWORD = "YOUR MQTT PASSWORD";  // MQTT broker password
 char mqttBuffer[512] = "";                   // Buffer for MQTT messages (increased for JSON)
+
+// --- TLS/SSL Certificate Configuration ---
+// IMPORTANT: Insecure mode should NOT be used in production!
+const bool MQTT_INSECURE_TLS = true;  // Set to false to enable certificate validation
+// If MQTT_INSECURE_TLS is false, you need to set the CA certificate below
+// const char* MQTT_CA_CERT = "-----BEGIN CERTIFICATE-----\n"
+//                            "YOUR CA CERTIFICATE HERE\n"
+//                            "-----END CERTIFICATE-----\n";
 
 // --- MQTT Command Topics (Subscribe) ---
 const char* MQTT_CMD_FAN = "sprop/cmd/fan";
@@ -50,8 +62,8 @@ bool timeInitialized = false;        // Track if time has been synchronized
 DHT dht(DHT_PIN, DHTTYPE);
 Servo lidServo;
 Servo waterValveServo;
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
+WiFiClientSecure espClientSecure;  // Secure TLS/SSL client
+PubSubClient mqttClient(espClientSecure);
 
 // --- STATE VARIABLES ---
 bool isLidOpen = false;     // Tracks if the lid is currently open
@@ -61,6 +73,13 @@ unsigned long lastDHTRead = 0;  // Last time DHT was read
 const unsigned long DHT_INTERVAL = 5000; // 5 seconds in milliseconds
 const int VALVE_OPEN_POSITION = 30; // Water valve open position (30 degrees)
 const int VALVE_CLOSED_POSITION = 0; // Water valve closed position (0 degrees)
+
+// --- SOIL MOISTURE SENSOR VARIABLES ---
+int soilMoistureValue = 0;  // Raw ADC reading (0-4095)
+int soilMoisturePercent = 0; // Moisture percentage (0-100%)
+
+const int SOIL_DRY_VALUE = 4095;    // ADC value when soil is completely dry
+const int SOIL_WET_VALUE = 1500;    // ADC value when soil is completely wet
 
 // --- FAULT DETECTION VARIABLES ---
 bool systemFault = false;   // System fault status
@@ -125,6 +144,22 @@ void setup() {
   }
   delay(100);
   
+  // 1.5. Setup Soil Moisture Sensor
+  Serial.println("Initializing soil moisture sensor...");
+  Serial.print("Soil moisture sensor connected to pin: ");
+  Serial.println(SOIL_MOISTURE_PIN);
+  int testSoilValue = analogRead(SOIL_MOISTURE_PIN);
+  Serial.print("Soil moisture sensor test read: ");
+  Serial.print(testSoilValue);
+  Serial.print(" (ADC raw value, 0-4095)");
+  int testSoilPercent = map(constrain(testSoilValue, SOIL_WET_VALUE, SOIL_DRY_VALUE), 
+                             SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
+  Serial.print(" = ");
+  Serial.print(testSoilPercent);
+  Serial.println("% moisture");
+  Serial.println("Note: Calibrate SOIL_DRY_VALUE and SOIL_WET_VALUE based on your sensor readings");
+  delay(100);
+  
   // 2. Setup Servos
   Serial.println("Initializing servos...");
   lidServo.setPeriodHertz(50); 
@@ -155,8 +190,24 @@ void setup() {
   Serial.println("WiFi connection will be attempted in main loop...");
   Serial.flush();
   
+  // Configure TLS/SSL settings
+  Serial.println("Configuring MQTT TLS/SSL security...");
+  if (MQTT_INSECURE_TLS) {
+    // Insecure mode - accepts any certificate (for development/testing only)
+    espClientSecure.setInsecure();
+    Serial.println("MQTT: TLS insecure mode enabled (development mode)");
+    Serial.println("WARNING: This is not secure for production use!");
+  } else {
+    Serial.println("MQTT: TLS certificate validation enabled (production mode)");
+    Serial.println("NOTE: Set MQTT_CA_CERT with your broker's CA certificate");
+  }
+  
+  // Set TLS timeout
+  espClientSecure.setTimeout(10);  // 10 second timeout
+  
   mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
   mqttClient.setCallback(mqttCallback);  // Set MQTT message callback
+  Serial.println("MQTT: Using secure TLS connection on port 8883");
   
   Serial.println("\n=== Setup Complete! ===");
   Serial.println("System ready. Starting main loop...");
@@ -177,6 +228,11 @@ void loop() {
     float t = dht.readTemperature();
     float h = dht.readHumidity();
     
+    // Read soil moisture sensor
+    soilMoistureValue = analogRead(SOIL_MOISTURE_PIN);
+    soilMoistureValue = constrain(soilMoistureValue, SOIL_WET_VALUE, SOIL_DRY_VALUE);
+    soilMoisturePercent = map(soilMoistureValue, SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
+    
     // Check if sensor is reading correctly
     if (isnan(t) || isnan(h)) {
       Serial.println("Error: DHT11 not responding!");
@@ -194,7 +250,11 @@ void loop() {
       Serial.print(t);
       Serial.print("°C, Humidity: ");
       Serial.print(h);
-      Serial.println("%");
+      Serial.print("%, Soil Moisture: ");
+      Serial.print(soilMoisturePercent);
+      Serial.print("% (ADC: ");
+      Serial.print(soilMoistureValue);
+      Serial.println(")");
     }
   }
 
@@ -428,22 +488,35 @@ void reconnectMQTT() {
   Serial.print(MQTT_SERVER);
   Serial.print(":");
   Serial.println(MQTT_PORT);
+  Serial.print("MQTT: Security: TLS/SSL encrypted (port 8883)");
+  if (MQTT_INSECURE_TLS) {
+    Serial.println(" [INSECURE MODE - Development Only]");
+  } else {
+    Serial.println(" [Certificate Validation Enabled]");
+  }
   Serial.print("MQTT: MAC Address: ");
   Serial.println(WiFi.macAddress());
   
-  // Test network connectivity to MQTT server
-  Serial.println("MQTT: Testing server reachability...");
-  WiFiClient testClient;
-  if (testClient.connect(MQTT_SERVER, MQTT_PORT)) {
-    Serial.println("MQTT: Server is reachable (TCP connection successful)");
-    testClient.stop();
+  // Test network connectivity to MQTT server (TLS port)
+  Serial.println("MQTT: Testing server reachability (TLS port 8883)...");
+  WiFiClientSecure testClientSecure;
+  if (MQTT_INSECURE_TLS) {
+    testClientSecure.setInsecure();
+  }
+  testClientSecure.setTimeout(5);
+  
+  if (testClientSecure.connect(MQTT_SERVER, MQTT_PORT)) {
+    Serial.println("MQTT: Server is reachable (TLS connection successful)");
+    testClientSecure.stop();
   } else {
     Serial.println("MQTT: WARNING - Server is NOT reachable!");
     Serial.println("MQTT: Possible issues:");
-    Serial.println("  1. Server IP address is incorrect");
+    Serial.println("  1. Server IP address/hostname is incorrect");
     Serial.println("  2. Server is not running");
-    Serial.println("  3. Firewall is blocking port 1883");
+    Serial.println("  3. Firewall is blocking port 8883 (TLS)");
     Serial.println("  4. Network routing issue");
+    Serial.println("  5. TLS/SSL handshake failed (certificate issue)");
+    Serial.println("  6. Server not configured for TLS on port 8883");
     return; // Don't try MQTT if server is not reachable
   }
   
@@ -462,9 +535,11 @@ void reconnectMQTT() {
     
     Serial.print("MQTT: Client ID: ");
     Serial.println(clientId);
+    Serial.print("MQTT: Username: ");
+    Serial.println(MQTT_USERNAME);
     
-    // Try connecting with keepalive of 60 seconds
-    if (mqttClient.connect(clientId.c_str())) {
+    // Try connecting with username and password authentication
+    if (mqttClient.connect(clientId.c_str(), MQTT_USERNAME, MQTT_PASSWORD)) {
       Serial.println("MQTT: Connected successfully!");
       Serial.print("MQTT: Client ID: ");
       Serial.println(clientId);
@@ -506,12 +581,25 @@ void reconnectMQTT() {
       }
       Serial.println(")");
       
-      if (state == -2) {
+      if (state == -2 || state == 4 || state == 5) {
         Serial.println("MQTT: Troubleshooting:");
         Serial.println("  - Verify MQTT broker is running on the server");
-        Serial.println("  - Check if broker requires authentication");
+        Serial.println("  - Check MQTT broker is configured for TLS on port 8883");
+        Serial.println("  - Check MQTT username and password are correct");
         Serial.println("  - Verify broker allows connections from your network");
         Serial.println("  - Check broker logs for connection attempts");
+        Serial.println("  - Verify TLS/SSL certificate is valid (if not using insecure mode)");
+        if (state == 4) {
+          Serial.println("  - Error 4: Bad credentials - check username/password");
+        }
+        if (state == 5) {
+          Serial.println("  - Error 5: Unauthorized - check user permissions");
+        }
+        if (state == -2) {
+          Serial.println("  - Error -2: Connection failed - check TLS configuration");
+          Serial.println("    * Ensure broker supports TLS on port 8883");
+          Serial.println("    * Check if certificate validation is required");
+        }
       }
       
       Serial.print("MQTT: Retrying in 5 seconds...");
@@ -661,24 +749,29 @@ void publishSensorData() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
   
+  // Read current soil moisture value
+  soilMoistureValue = analogRead(SOIL_MOISTURE_PIN);
+  soilMoistureValue = constrain(soilMoistureValue, SOIL_WET_VALUE, SOIL_DRY_VALUE);
+  soilMoisturePercent = map(soilMoistureValue, SOIL_DRY_VALUE, SOIL_WET_VALUE, 0, 100);
+  
   if (!isnan(t) && !isnan(h)) {
     // Get ISO 8601 timestamp
     String timestamp = getISOTimestamp();
     
     // Create JSON message with all sensor data and system status
-    // Format: {"temperature": 30.80, "humidity": 70.00, "timestamp": "2024-01-03T16:58:08Z", "lid_state": "CLOSED", "fan_state": "OFF", "valve_state": "CLOSED"}
+    // Format: {"temperature": 30.80, "humidity": 70.00, "soil_moisture": 45, "timestamp": "2024-01-03T16:58:08Z", "lid_state": "CLOSED", "fan_state": "OFF", "valve_state": "CLOSED"}
     if (timestamp.length() > 0) {
       snprintf(mqttBuffer, sizeof(mqttBuffer), 
-               "{\"temperature\": %.2f, \"humidity\": %.2f, \"timestamp\": \"%s\", \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
-               t, h, timestamp.c_str(),
+               "{\"temperature\": %.2f, \"humidity\": %.2f, \"soil_moisture\": %d, \"timestamp\": \"%s\", \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
+               t, h, soilMoisturePercent, timestamp.c_str(),
                isLidOpen ? "OPEN" : "CLOSED",
                isRelayOn ? "ON" : "OFF",
                isWaterValveOn ? "OPEN" : "CLOSED");
     } else {
       // Fallback if timestamp is not available
       snprintf(mqttBuffer, sizeof(mqttBuffer), 
-               "{\"temperature\": %.2f, \"humidity\": %.2f, \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
-               t, h,
+               "{\"temperature\": %.2f, \"humidity\": %.2f, \"soil_moisture\": %d, \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
+               t, h, soilMoisturePercent,
                isLidOpen ? "OPEN" : "CLOSED",
                isRelayOn ? "ON" : "OFF",
                isWaterValveOn ? "OPEN" : "CLOSED");
@@ -689,18 +782,19 @@ void publishSensorData() {
     Serial.print("MQTT Published (JSON): ");
     Serial.println(mqttBuffer);
   } else {
-    // Publish fault status as JSON
+    // Publish fault status as JSON (still include soil moisture if available)
     String timestamp = getISOTimestamp();
     if (timestamp.length() > 0) {
       snprintf(mqttBuffer, sizeof(mqttBuffer), 
-               "{\"error\": \"DHT11 sensor error\", \"timestamp\": \"%s\", \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
-               timestamp.c_str(),
+               "{\"error\": \"DHT11 sensor error\", \"soil_moisture\": %d, \"timestamp\": \"%s\", \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
+               soilMoisturePercent, timestamp.c_str(),
                isLidOpen ? "OPEN" : "CLOSED",
                isRelayOn ? "ON" : "OFF",
                isWaterValveOn ? "OPEN" : "CLOSED");
     } else {
       snprintf(mqttBuffer, sizeof(mqttBuffer), 
-               "{\"error\": \"DHT11 sensor error\", \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
+               "{\"error\": \"DHT11 sensor error\", \"soil_moisture\": %d, \"lid_state\": \"%s\", \"fan_state\": \"%s\", \"valve_state\": \"%s\"}",
+               soilMoisturePercent,
                isLidOpen ? "OPEN" : "CLOSED",
                isRelayOn ? "ON" : "OFF",
                isWaterValveOn ? "OPEN" : "CLOSED");
