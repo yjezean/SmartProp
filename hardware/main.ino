@@ -24,22 +24,22 @@ const int WATER_VALVE_SERVO_PIN = 26; // Servo pin for water valve
 
 
 // --- WiFi & MQTT Configuration ---
-const char* WIFI_SSID = "97-1-5 (2.4Ghz)";             // Your WiFi SSID
-const char* WIFI_PASSWORD = "UHeight9715";       // Your WiFi password
-const char* MQTT_SERVER = "34.87.144.95";     // Your VM instance public IP address
-const char* MQTT_TOPIC = "compost/sensor/data";     // MQTT topic for publishing sensor data
+const char* WIFI_SSID = "YOUR WIFI SSID";             // Your WiFi SSID
+const char* WIFI_PASSWORD = "YOUR WIFI PASSWORD";       // Your WiFi password
+const char* MQTT_SERVER = "YOUR MQTT SERVER IP ADDRESS";     // Your VM instance public IP address
+const char* MQTT_TOPIC = "sprop/sensor/data";     // MQTT topic for publishing sensor data
 const int MQTT_PORT = 1883;                  // Non-TLS communication port
 char mqttBuffer[512] = "";                   // Buffer for MQTT messages (increased for JSON)
 
 // --- MQTT Command Topics (Subscribe) ---
-const char* MQTT_CMD_FAN = "compost/cmd/fan";
-const char* MQTT_CMD_LID = "compost/cmd/lid";
-const char* MQTT_CMD_VALVE = "compost/cmd/valve";
+const char* MQTT_CMD_FAN = "sprop/cmd/fan";
+const char* MQTT_CMD_LID = "sprop/cmd/lid";
+const char* MQTT_CMD_VALVE = "sprop/cmd/valve";
 
 // --- MQTT Status Topics (Publish) ---
-const char* MQTT_STATUS_FAN = "compost/status/fan";
-const char* MQTT_STATUS_LID = "compost/status/lid";
-const char* MQTT_STATUS_VALVE = "compost/status/valve";
+const char* MQTT_STATUS_FAN = "sprop/status/fan";
+const char* MQTT_STATUS_LID = "sprop/status/lid";
+const char* MQTT_STATUS_VALVE = "sprop/status/valve";
 
 // --- NTP Configuration ---
 const char* ntpServer = "pool.ntp.org";
@@ -84,7 +84,7 @@ void setup() {
   Serial.begin(115200);
   delay(2000); // Give serial monitor more time to connect
   
-  Serial.println("\n\n=== Starting Composting Prototype ===");
+  Serial.println("\n\n=== Starting SProp Prototype ===");
   Serial.flush();
   
   // Initialize GPIO2 (LED_GREEN) as LOW first to ensure proper boot
@@ -456,7 +456,7 @@ void reconnectMQTT() {
     Serial.println("/3)...");
     
     // Generate unique client ID with MAC address
-    String clientId = "ESP32CompostingClient-";
+    String clientId = "ESP32SPropClient-";
     clientId += String(WiFi.macAddress());
     clientId.replace(":", ""); // Remove colons from MAC address
     
