@@ -54,3 +54,7 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 API_SSL_CERTFILE = os.getenv("API_SSL_CERTFILE", None)  # Path to SSL certificate file
 API_SSL_KEYFILE = os.getenv("API_SSL_KEYFILE", None)  # Path to SSL private key file
 
+# JWT Authentication configuration
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-this-in-production")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 hours default

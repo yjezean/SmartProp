@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/config_service.dart';
 import '../services/api_service.dart';
 import '../services/mqtt_service.dart';
+import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -154,6 +156,120 @@ class _SettingsScreenState extends State<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // User Account Section
+          Consumer<AuthProvider>(
+            builder: (context, authProvider, _) {
+              if (authProvider.user != null) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Account',
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    const Divider(),
+                    const SizedBox(height: 16),
+                    Card(
+                      color: AppTheme.surface,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.person, size: 24),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        authProvider.user!.username,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyLarge
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                      ),
+                                      if (authProvider.user!.fullName != null)
+                                        Text(
+                                          authProvider.user!.fullName!,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: AppTheme.textSecondary,
+                                              ),
+                                        ),
+                                      Text(
+                                        authProvider.user!.email,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: AppTheme.textSecondary,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Logout'),
+                            content: const Text(
+                                'Are you sure you want to logout?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Logout'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirm == true && mounted) {
+                          await authProvider.logout();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Logged out successfully'),
+                              backgroundColor: AppTheme.success,
+                            ),
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.logout),
+                      label: const Text('Logout'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.error,
+                        side: const BorderSide(color: AppTheme.error),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                  ],
+                );
+              }
+              return const SizedBox.shrink();
+            },
+          ),
+
           // Connection Settings Section
           Text(
             'Connection Settings',

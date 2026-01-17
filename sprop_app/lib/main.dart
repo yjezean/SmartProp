@@ -5,10 +5,12 @@ import 'providers/sensor_provider.dart';
 import 'providers/chart_data_provider.dart';
 import 'providers/device_control_provider.dart';
 import 'providers/optimization_provider.dart';
+import 'providers/auth_provider.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/chart_screen.dart';
 import 'screens/control_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -25,6 +27,7 @@ class CompostMonitorApp extends StatelessWidget {
 
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => SensorProvider(mqttService)),
         ChangeNotifierProvider(create: (_) => ChartDataProvider()),
         ChangeNotifierProvider(
@@ -34,9 +37,33 @@ class CompostMonitorApp extends StatelessWidget {
       child: MaterialApp(
         title: 'SProp Monitor',
         theme: AppTheme.lightTheme,
-        home: MainScreen(mqttService: mqttService),
+        home: AuthWrapper(mqttService: mqttService),
         debugShowCheckedModeBanner: false,
       ),
+    );
+  }
+}
+
+class AuthWrapper extends StatelessWidget {
+  final MqttService mqttService;
+
+  AuthWrapper({
+    super.key,
+    required this.mqttService,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AuthProvider>(
+      builder: (context, authProvider, _) {
+        // Show login screen if not authenticated
+        if (!authProvider.isAuthenticated) {
+          return const LoginScreen();
+        }
+
+        // Show main app if authenticated
+        return MainScreen(mqttService: mqttService);
+      },
     );
   }
 }

@@ -5,12 +5,13 @@ class ConfigService {
   static const String _apiBaseUrlKey = 'api_base_url';
   static const String _mqttUsernameKey = 'mqtt_username';
   static const String _mqttPasswordKey = 'mqtt_password';
+  static const String _authTokenKey = 'auth_token';
 
   // Default values
   static const String defaultMqttBroker = 'ssl://34.124.234.109:8883';
   static const String defaultApiBaseUrl = 'https://34.124.234.109:8000/api/v1';
-  static const String defaultMqttUsername = 'your_username'; // Set via settings
-  static const String defaultMqttPassword = 'abc1234'; // Set via settings
+  static const String defaultMqttUsername = ''; // Set here or via settings
+  static const String defaultMqttPassword = ''; // Set here or via settings
 
   static Future<String> getMqttBrokerUrl() async {
     final prefs = await SharedPreferences.getInstance();
@@ -52,11 +53,28 @@ class ConfigService {
     await prefs.setString(_mqttPasswordKey, password);
   }
 
+  // Auth token methods
+  static Future<String?> getAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_authTokenKey);
+  }
+
+  static Future<void> setAuthToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_authTokenKey, token);
+  }
+
+  static Future<void> clearAuthToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_authTokenKey);
+  }
+
   static Future<void> resetToDefaults() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_mqttBrokerKey);
     await prefs.remove(_apiBaseUrlKey);
     await prefs.remove(_mqttUsernameKey);
     await prefs.remove(_mqttPasswordKey);
+    await prefs.remove(_authTokenKey);
   }
 }
