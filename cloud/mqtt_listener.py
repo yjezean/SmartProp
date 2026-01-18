@@ -277,17 +277,23 @@ class SPropMQTTListener:
         else:
             current_lid_state = self.last_lid_state or 'UNKNOWN'
         
+        current_valve_state = data.get('valve_state') or data.get('valve')
+        if current_valve_state:
+            current_valve_state = str(current_valve_state).strip().upper()
+        else:
+            current_valve_state = self.last_valve_state or 'UNKNOWN'
+        
         # Log control decision
         logger.info(f"[CONTROL] Temp: {temp:.1f}°C, Humidity: {humidity:.1f}%")
-        logger.info(f"[CONTROL] Fan: {control['fan_action']} (current: {current_fan_state}) | Lid: {control['lid_action']} (current: {current_lid_state})")
-        logger.info(f"[CONTROL] Reason - Temp: {control['temp_status']}, Humidity: {control['humidity_status']}")
+        logger.info(f"[CONTROL] Fan: {control['fan_action']} (current: {current_fan_state}) | Lid: {control['lid_action']} (current: {current_lid_state}) | Valve: {control.get('valve_action', 'N/A')} (current: {current_valve_state})")
+        logger.info(f"[CONTROL] {control['message']}")
         
         # Fan control - send command if action is required and state differs
         if control['fan_action'] == 'ON':
             if current_fan_state != 'ON':
                 self.publish_command(config.MQTT_CMD_FAN_TOPIC, {"action": "ON"})
                 self.last_fan_state = 'ON'
-                logger.warning(f"[CONTROL] ✓ Fan ON - {control['humidity_message'] if control['humidity_status'] == 'too_high' else control['temp_message']}")
+                logger.warning(f"[CONTROL] ✓ Fan ON - {control['message']}")
             else:
                 logger.debug(f"[CONTROL] Fan already ON, skipping")
         elif control['fan_action'] == 'OFF':
@@ -314,6 +320,22 @@ class SPropMQTTListener:
                 logger.info(f"[CONTROL] ✓ Lid CLOSED - {control['message']}")
             else:
                 logger.debug(f"[CONTROL] Lid already CLOSED, skipping")
+        
+        # Valve control - send command if action is required and state differs
+        if control.get('valve_action') == 'OPEN':
+            if current_valve_state != 'OPEN':
+                self.publish_command(config.MQTT_CMD_VALVE_TOPIC, {"action": "OPEN"})
+                self.last_valve_state = 'OPEN'
+                logger.warning(f"[CONTROL] ✓ Valve OPEN - {control['message']}")
+            else:
+                logger.debug(f"[CONTROL] Valve already OPEN, skipping")
+        elif control.get('valve_action') == 'CLOSED':
+            if current_valve_state != 'CLOSED':
+                self.publish_command(config.MQTT_CMD_VALVE_TOPIC, {"action": "CLOSE"})
+                self.last_valve_state = 'CLOSED'
+                logger.info(f"[CONTROL] ✓ Valve CLOSED - {control['message']}")
+            else:
+                logger.debug(f"[CONTROL] Valve already CLOSED, skipping")
     
     def publish_command(self, topic: str, payload: Dict):
         """Publish command to MQTT topic"""
